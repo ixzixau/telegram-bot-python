@@ -27,9 +27,9 @@ def send_welcome(message):
 
 def validate_code(message):
     if message.text in VALID_CODES:
-        bot.send_message(message.chat.id, "✓ Code valid! You can now link your MT5 account.")
+        bot.send_message(message.chat.id, "Code valid! You can now link your MT5 account.")
     else:
-        bot.send_message(message.chat.id, "✗ Invalid code. Try again.")
+        bot.send_message(message.chat.id, "Invalid code. Try again.")
         Args:
             message (telebot.types.Message): The message object.
         """
