@@ -1,3 +1,5 @@
+# 9Z1 Telegram MT5 Copy Trading Bot - Updated Aug 22
+
 import os
 import time
 import telebot
