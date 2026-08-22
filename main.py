@@ -18,11 +18,16 @@ try:
     bot = telebot.TeleBot(TOKEN)
     register_commands(bot)
 
-    @bot.message_handler(commands=['start', 'hello'])
-    def send_welcome(message):
-        """
-        Handle '/start' and '/hello' commands.
+@bot.message_handler(commands=['start', 'hello'])
+def send_welcome(message):
+    msg = bot.send_message(message.chat.id, "Please enter your access code:")
+    bot.register_next_step_handler(msg, validate_code)
 
+def validate_code(message):
+    if message.text in VALID_CODES:
+        bot.send_message(message.chat.id, "✓ Code valid! You can now link your MT5 account.")
+    else:
+        bot.send_message(message.chat.id, "✗ Invalid code. Try again.")
         Args:
             message (telebot.types.Message): The message object.
         """
