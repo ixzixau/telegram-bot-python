@@ -4,6 +4,11 @@ import telebot
 from dotenv import load_dotenv
 from commands import register_commands
 
+VALID_CODES = {
+    '9Z1_XAU': True,
+    '9Z1_GOLD': True,
+}
+
 # Load environment variables
 load_dotenv()
 
