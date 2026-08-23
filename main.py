@@ -202,10 +202,9 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=status_msg_id,
-                text=f"<b>Registration Failed at Step 1</b>\n\n"
-                     f"Error: {response.text}\n\n"
-                     f"Please check your MT5 credentials and try again with /start",
-                parse_mode='HTML'
+                text=f"Registration Failed at Step 1\n\n"
+                     f"Error: Bad MT5 credentials or server name incorrect\n\n"
+                     f"Please check your details and try again with /start"
             )
             return
 
@@ -242,11 +241,10 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=status_msg_id,
-                text=f"<b>Partial Success</b>\n\n"
+                text=f"Partial Success\n\n"
                      f"Account registered but CopyFactory setup failed.\n"
                      f"Account ID: {slave_account_id}\n"
-                     f"Please contact support.",
-                parse_mode='HTML'
+                     f"Please contact support."
             )
             return
 
@@ -302,18 +300,16 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=status_msg_id,
-            text=f"<b>Registration Timeout</b>\n\n"
-                 f"MetaAPI took too long to respond. Please try again with /start",
-            parse_mode='HTML'
+            text=f"Registration Timeout\n\n"
+                 f"MetaAPI took too long to respond. Please try again with /start"
         )
     except Exception as e:
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=status_msg_id,
-            text=f"<b>Registration Error</b>\n\n"
-                 f"Error: {str(e)}\n\n"
-                 f"Please try again with /start or contact support.",
-            parse_mode='HTML'
+            text=f"Registration Error\n\n"
+                 f"An unexpected error occurred.\n\n"
+                 f"Please try again with /start or contact support."
         )
 
 @bot.message_handler(func=lambda message: True)
