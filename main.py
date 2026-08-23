@@ -13,8 +13,8 @@ MASTER_ACCOUNT_ID = "45f41e44-44ff-47e0-ab4b-4780605a0c39"
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 
 VALID_CODES = {
-    '9Z1_XAU': True,
-    '9Z1_GOLD': True,
+    '9Z1XAU': True,
+    '9Z1GOLD': True,
 }
 
 user_sessions = {}
@@ -36,6 +36,7 @@ def validate_code(message):
             'code': code,
             'mt5_login': None,
             'mt5_password': None,
+            'mt5_password_type': None,
             'mt5_server': None,
             'lot_size': None,
             'chat_id': message.chat.id
@@ -62,9 +63,40 @@ def get_mt5_login(message):
     user_sessions[user_id]['mt5_login'] = login
     msg = bot.send_message(
         user_id,
-        "Thank you. Now please enter your MT5 investor (read-only) password:"
+        "Thank you. Which MT5 password do you have?\n\n"
+        "Reply with:\n"
+        "1 - Investor Password (read-only, recommended for security)\n"
+        "2 - Terminal Password (full access)\n\n"
+        "Type 1 or 2:"
     )
-    bot.register_next_step_handler(msg, get_mt5_password)
+    bot.register_next_step_handler(msg, get_password_type)
+
+def get_password_type(message):
+    user_id = message.chat.id
+    password_type = message.text.strip()
+
+    if password_type == '1':
+        user_sessions[user_id]['mt5_password_type'] = 'investor'
+        msg = bot.send_message(
+            user_id,
+            "Great! Please enter your MT5 investor (read-only) password:"
+        )
+        bot.register_next_step_handler(msg, get_mt5_password)
+    elif password_type == '2':
+        user_sessions[user_id]['mt5_password_type'] = 'terminal'
+        msg = bot.send_message(
+            user_id,
+            "Great! Please enter your MT5 terminal password:"
+        )
+        bot.register_next_step_handler(msg, get_mt5_password)
+    else:
+        msg = bot.send_message(
+            user_id,
+            "Invalid choice. Please reply with 1 or 2:\n"
+            "1 - Investor Password\n"
+            "2 - Terminal Password"
+        )
+        bot.register_next_step_handler(msg, get_password_type)
 
 def get_mt5_password(message):
     user_id = message.chat.id
@@ -128,11 +160,11 @@ def get_lot_size(message):
     # Start the registration process with step-by-step updates
     chat_id = user_sessions[user_id]['chat_id']
 
-    # Initial message
+    # Initial message - NO EMOJIS in HTML mode
     status_msg = bot.send_message(
         chat_id,
-        "📋 <b>Starting account registration...</b>\n\n"
-        "⏳ Step 1/3: Registering your MT5 account with MetaAPI...",
+        "<b>Starting account registration...</b>\n\n"
+        "Step 1/3: Registering your MT5 account with MetaAPI...",
         parse_mode='HTML'
     )
 
@@ -145,6 +177,7 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         session_data = user_sessions.get(user_id, {})
         mt5_login = session_data['mt5_login']
         mt5_password = session_data['mt5_password']
+        mt5_password_type = session_data['mt5_password_type']
         mt5_server = session_data['mt5_server']
         lot_size = session_data['lot_size']
 
@@ -169,7 +202,7 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=status_msg_id,
-                text=f"❌ <b>Registration Failed at Step 1</b>\n\n"
+                text=f"<b>Registration Failed at Step 1</b>\n\n"
                      f"Error: {response.text}\n\n"
                      f"Please check your MT5 credentials and try again with /start",
                 parse_mode='HTML'
@@ -183,14 +216,13 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=status_msg_id,
-            text=f"📋 <b>Starting account registration...</b>\n\n"
-                 f"✅ Step 1/3: Account registered with MetaAPI\n"
+            text=f"<b>Starting account registration...</b>\n\n"
+                 f"✓ Step 1/3: Account registered with MetaAPI\n"
                  f"Account ID: <code>{slave_account_id}</code>\n\n"
-                 f"⏳ Step 2/3: Connecting to master account (CopyFactory)...",
+                 f"Step 2/3: Connecting to master account (CopyFactory)...",
             parse_mode='HTML'
         )
 
-        # Wait for account to fully initialize
         time.sleep(2)
 
         # ===== STEP 2: Configure CopyFactory Subscription (Slave) =====
@@ -210,7 +242,7 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=status_msg_id,
-                text=f"⚠️ <b>Partial Success</b>\n\n"
+                text=f"<b>Partial Success</b>\n\n"
                      f"Account registered but CopyFactory setup failed.\n"
                      f"Account ID: {slave_account_id}\n"
                      f"Please contact support.",
@@ -222,10 +254,10 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=status_msg_id,
-            text=f"📋 <b>Starting account registration...</b>\n\n"
-                 f"✅ Step 1/3: Account registered with MetaAPI\n"
-                 f"✅ Step 2/3: Connected to 9Z1 Master Account\n\n"
-                 f"⏳ Step 3/3: Applying lot size multiplier...",
+            text=f"<b>Starting account registration...</b>\n\n"
+                 f"✓ Step 1/3: Account registered with MetaAPI\n"
+                 f"✓ Step 2/3: Connected to 9Z1 Master Account\n\n"
+                 f"Step 3/3: Applying lot size multiplier...",
             parse_mode='HTML'
         )
 
@@ -235,9 +267,9 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=status_msg_id,
-            text=f"✅ Step 1/3: Account registered with MetaAPI\n"
-                 f"✅ Step 2/3: Connected to 9Z1 Master Account\n"
-                 f"✅ Step 3/3: Lot size multiplier applied\n\n"
+            text=f"✓ Step 1/3: Account registered with MetaAPI\n"
+                 f"✓ Step 2/3: Connected to 9Z1 Master Account\n"
+                 f"✓ Step 3/3: Lot size multiplier applied\n\n"
                  f"Lot Size: {lot_size}x",
             parse_mode='HTML'
         )
@@ -245,16 +277,19 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         time.sleep(1)
 
         # ===== FINAL CONFIRMATION =====
+        password_type_display = "Investor (Read-Only)" if mt5_password_type == 'investor' else "Terminal (Full Access)"
+
         confirmation_message = (
-            f"🎉 <b>Success! Your MT5 account is now live!</b>\n\n"
+            f"<b>SUCCESS! Your MT5 account is now live!</b>\n\n"
             f"<b>Account Details:</b>\n"
-            f"📍 Login: <code>{mt5_login}</code>\n"
-            f"🖥️ Server: <code>{mt5_server}</code>\n"
-            f"📊 Lot Size: <code>{lot_size}x</code>\n"
-            f"🆔 Account ID: <code>{slave_account_id}</code>\n\n"
-            f"<b>Status:</b> ✅ Connected to 9Z1 Master Account\n"
+            f"Login: <code>{mt5_login}</code>\n"
+            f"Password Type: <code>{password_type_display}</code>\n"
+            f"Server: <code>{mt5_server}</code>\n"
+            f"Lot Size: <code>{lot_size}x</code>\n"
+            f"Account ID: <code>{slave_account_id}</code>\n\n"
+            f"<b>Status:</b> Connected to 9Z1 Master Account\n"
             f"<b>Trades:</b> Now copying XAU/USD trades with your lot size\n\n"
-            f"<i>Your account is ready! Trades will begin copying immediately when the master account executes them.</i>"
+            f"Your account is ready! Trades will begin copying immediately when the master account executes them."
         )
 
         bot.send_message(chat_id, confirmation_message, parse_mode='HTML')
@@ -267,7 +302,7 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=status_msg_id,
-            text=f"❌ <b>Registration Timeout</b>\n\n"
+            text=f"<b>Registration Timeout</b>\n\n"
                  f"MetaAPI took too long to respond. Please try again with /start",
             parse_mode='HTML'
         )
@@ -275,7 +310,7 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=status_msg_id,
-            text=f"❌ <b>Registration Error</b>\n\n"
+            text=f"<b>Registration Error</b>\n\n"
                  f"Error: {str(e)}\n\n"
                  f"Please try again with /start or contact support.",
             parse_mode='HTML'
