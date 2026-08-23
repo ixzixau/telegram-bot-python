@@ -318,7 +318,7 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
             "name": f"9Z1 - {full_name} - {mt5_login}",
             "server": mt5_server,
             "platform": "mt5",
-            "magic": 9Z1,
+            "magic": 123456,
             "type": "cloud-g2",
             "manualTrades": False,
             "copyFactoryRoles": ["SUBSCRIBER"]
