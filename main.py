@@ -297,6 +297,17 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
     """Register MT5 account with MetaAPI and set up CopyFactory - with live updates"""
 
     try:
+        # Validate environment variables
+        if not METAAPI_TOKEN:
+            print("ERROR: METAAPI_TOKEN not set in environment variables")
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=status_msg_id,
+                text=f"Configuration Error\n\n"
+                     f"MetaAPI token is not configured. Please contact support."
+            )
+            return
+
         session_data = user_sessions.get(user_id, {})
         mt5_login = session_data['mt5_login']
         mt5_password = session_data['mt5_password']
@@ -326,20 +337,57 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
 
         # Current MetaAPI provisioning endpoint (2026)
         add_account_url = "https://mt-provisioning-api-v1.agiliumtrade.ai/users/current/accounts"
-        response = requests.post(add_account_url, json=account_data, headers=headers, timeout=30)
 
-        if response.status_code not in [200, 201, 202]:
+        try:
+            response = requests.post(add_account_url, json=account_data, headers=headers, timeout=30)
+            print(f"MetaAPI Response Status: {response.status_code}")
+            print(f"MetaAPI Response: {response.text}")
+
+            if response.status_code not in [200, 201, 202]:
+                error_text = response.text
+                print(f"Account registration failed: {error_text}")
+
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=status_msg_id,
+                    text=f"Registration Failed at Step 1\n\n"
+                         f"Error: Bad MT5 credentials or server name incorrect\n\n"
+                         f"Please check your details and try again with /start"
+                )
+                return
+
+            slave_account_data = response.json()
+            slave_account_id = slave_account_data.get('id')
+
+            if not slave_account_id:
+                print(f"No account ID returned from MetaAPI: {slave_account_data}")
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=status_msg_id,
+                    text=f"Registration Failed\n\n"
+                         f"Could not retrieve account ID from MetaAPI.\n\n"
+                         f"Please try again with /start"
+                )
+                return
+
+        except requests.exceptions.Timeout:
+            print("MetaAPI request timed out")
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=status_msg_id,
-                text=f"Registration Failed at Step 1\n\n"
-                     f"Error: Bad MT5 credentials or server name incorrect\n\n"
-                     f"Please check your details and try again with /start"
+                text=f"Registration Timeout at Step 1\n\n"
+                     f"MetaAPI took too long to respond. Please try /start again"
             )
             return
-
-        slave_account_data = response.json()
-        slave_account_id = slave_account_data.get('id')
+        except requests.exceptions.RequestException as e:
+            print(f"MetaAPI request error: {str(e)}")
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=status_msg_id,
+                text=f"Network Error at Step 1\n\n"
+                     f"Could not connect to MetaAPI. Please try /start again"
+            )
+            return
 
         # Update status message - Step 1 complete
         bot.edit_message_text(
@@ -372,16 +420,39 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
             'Content-Type': 'application/json'
         }
 
-        sub_response = requests.put(subscription_url, json=copy_config, headers=sub_headers, timeout=30)
+        try:
+            sub_response = requests.put(subscription_url, json=copy_config, headers=sub_headers, timeout=30)
+            print(f"CopyFactory Response Status: {sub_response.status_code}")
+            print(f"CopyFactory Response: {sub_response.text}")
 
-        if sub_response.status_code not in [200, 201, 204]:
+            if sub_response.status_code not in [200, 201, 204]:
+                print(f"CopyFactory subscription failed: {sub_response.text}")
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=status_msg_id,
+                    text=f"Partial Success\n\n"
+                         f"Account registered but CopyFactory setup failed.\n"
+                         f"Account ID: {slave_account_id}\n"
+                         f"Please contact support."
+                )
+                return
+
+        except requests.exceptions.Timeout:
+            print("CopyFactory request timed out")
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=status_msg_id,
-                text=f"Partial Success\n\n"
-                     f"Account registered but CopyFactory setup failed.\n"
-                     f"Account ID: {slave_account_id}\n"
-                     f"Please contact support."
+                text=f"Timeout at Step 2\n\n"
+                     f"CopyFactory took too long to respond. Please try /start again"
+            )
+            return
+        except requests.exceptions.RequestException as e:
+            print(f"CopyFactory request error: {str(e)}")
+            bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=status_msg_id,
+                text=f"Network Error at Step 2\n\n"
+                     f"Could not connect to CopyFactory. Please try /start again"
             )
             return
 
@@ -445,14 +516,12 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         user_sessions[user_id]['accounts'].append(new_account)
         user_sessions[user_id]['step'] = 'account_linked'
 
-    except requests.exceptions.Timeout:
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_msg_id,
-            text=f"Registration Timeout\n\n"
-                 f"MetaAPI took too long to respond. Please try /start again"
-        )
     except Exception as e:
+        error_msg = str(e)
+        print(f"Unexpected error in register_account_with_metaapi: {error_msg}")
+        import traceback
+        print(traceback.format_exc())
+
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=status_msg_id,
@@ -554,6 +623,7 @@ def update_lot_size_on_metaapi(user_id, chat_id, status_msg_id, new_lot_size):
         response = requests.put(subscription_url, json=copy_config, headers=headers, timeout=30)
 
         if response.status_code not in [200, 201, 204]:
+            print(f"Error updating lot size: {response.text}")
             bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=status_msg_id,
@@ -584,6 +654,7 @@ def update_lot_size_on_metaapi(user_id, chat_id, status_msg_id, new_lot_size):
                  f"Please try /start again"
         )
     except Exception as e:
+        print(f"Error updating lot size: {str(e)}")
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=status_msg_id,
@@ -635,6 +706,8 @@ def remove_account_from_metaapi(user_id, chat_id, status_msg_id):
         delete_url = f"https://mt-provisioning-api-v1.agiliumtrade.ai/users/current/accounts/{slave_account_id}"
         delete_response = requests.delete(delete_url, headers=headers, timeout=30)
 
+        print(f"Account deletion response: {delete_response.status_code}")
+
         # Remove from accounts list
         user_sessions[user_id]['accounts'].pop(account_index)
 
@@ -658,6 +731,7 @@ def remove_account_from_metaapi(user_id, chat_id, status_msg_id):
                  f"Please try /start again or contact support."
         )
     except Exception as e:
+        print(f"Error removing account: {str(e)}")
         bot.edit_message_text(
             chat_id=chat_id,
             message_id=status_msg_id,
