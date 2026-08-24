@@ -13,49 +13,26 @@ MASTER_ACCOUNT_ID = "45f41e44-44ff-47e0-ab4b-4780605a0c39"
 
 bot = TeleBot(TELEGRAM_BOT_TOKEN)
 
-VALID_CODES = {
-    '9Z1XAU': True,
-    '9Z1GOLD': True,
-}
-
+VALID_CODES = {'9Z1XAU': True, '9Z1GOLD': True}
 user_sessions = {}
-
-# Disable SSL warnings (Railway network issue workaround)
-requests.packages.urllib3.disable_warnings()
 
 @bot.message_handler(commands=['start', 'hello'])
 def send_welcome(message):
     user_id = message.chat.id
-
     if user_id not in user_sessions:
         user_sessions[user_id] = {'accounts': []}
 
     accounts = user_sessions[user_id].get('accounts', [])
 
     if accounts:
-        accounts_text = "<b>Welcome back to 9Z1</b>\n\n"
-        accounts_text += "<b>Your Accounts:</b>\n\n"
-
+        accounts_text = "Welcome back to 9Z1\n\nYour Accounts:\n\n"
         for i, account in enumerate(accounts, 1):
             accounts_text += f"{i}. {account['full_name']}\n   MT5: {account['mt5_login']} | Lot: {account['lot_size']}x\n\n"
-
-        accounts_text += (
-            f"<b>What would you like to do?</b>\n\n"
-            f"Reply with:\n"
-            f"<b>1-{len(accounts)}</b> - Select an account to manage\n"
-            f"<b>NEW</b> - Add a new account\n"
-            f"<b>VIEW</b> - View all accounts"
-        )
-
-        msg = bot.send_message(user_id, accounts_text, parse_mode='HTML')
+        accounts_text += f"Reply with:\n1-{len(accounts)} - Select account\nNEW - Add account\nVIEW - View all"
+        msg = bot.send_message(user_id, accounts_text)
         bot.register_next_step_handler(msg, handle_start_selection)
     else:
-        user_sessions[user_id]['step'] = 'waiting_for_code'
-        msg = bot.send_message(
-            user_id,
-            "Welcome to 9Z1\n\n"
-            "Please enter your access code:"
-        )
+        msg = bot.send_message(user_id, "Welcome to 9Z1\n\nPlease enter your access code:")
         bot.register_next_step_handler(msg, validate_code)
 
 def handle_start_selection(message):
@@ -64,90 +41,42 @@ def handle_start_selection(message):
     accounts = user_sessions[user_id]['accounts']
 
     if choice == 'NEW':
-        user_sessions[user_id]['step'] = 'waiting_for_code'
-        msg = bot.send_message(user_id, "Please enter your access code to add a new account:")
+        msg = bot.send_message(user_id, "Please enter your access code:")
         bot.register_next_step_handler(msg, validate_code)
-
     elif choice == 'VIEW':
         view_accounts(message)
-
     elif choice.isdigit():
         try:
             account_num = int(choice) - 1
             if 0 <= account_num < len(accounts):
                 account = accounts[account_num]
                 user_sessions[user_id]['selected_account_index'] = account_num
-
-                options_text = (
-                    f"<b>{account['full_name']}</b>\n"
-                    f"MT5 Login: {account['mt5_login']}\n"
-                    f"Lot Size: {account['lot_size']}x\n\n"
-                    f"<b>What would you like to do?</b>\n\n"
-                    f"Reply with:\n"
-                    f"<b>UPDATE</b> - Change lot size\n"
-                    f"<b>REMOVE</b> - Disconnect account\n"
-                    f"<b>BACK</b> - Go back"
-                )
-
-                msg = bot.send_message(user_id, options_text, parse_mode='HTML')
+                msg = bot.send_message(user_id, f"{account['full_name']}\nMT5: {account['mt5_login']}\nLot: {account['lot_size']}x\n\nReply: UPDATE, REMOVE, or BACK")
                 bot.register_next_step_handler(msg, handle_account_action)
-            else:
-                msg = bot.send_message(user_id, "Invalid selection. Please try /start again")
         except:
-            msg = bot.send_message(user_id, "Invalid input. Please try /start again")
-    else:
-        msg = bot.send_message(user_id, "Invalid choice. Please try /start again")
+            pass
 
 def handle_account_action(message):
     user_id = message.chat.id
     action = message.text.strip().upper()
-
-    if action == 'UPDATE':
-        account_index = user_sessions[user_id].get('selected_account_index', 0)
-        ask_for_new_lot_size(user_id, message.chat.id)
-
-    elif action == 'REMOVE':
-        account_index = user_sessions[user_id].get('selected_account_index', 0)
-        account = user_sessions[user_id]['accounts'][account_index]
-
-        confirmation_text = (
-            f"Are you sure you want to disconnect this account?\n\n"
-            f"<b>Account:</b> {account['full_name']} - {account['mt5_login']}\n\n"
-            f"This will:\n"
-            f"• Stop all trade copying to this account\n"
-            f"• Remove it from 9Z1\n"
-            f"• Close the CopyFactory subscription\n\n"
-            f"Reply with:\n"
-            f"YES - Confirm removal\n"
-            f"NO - Cancel"
-        )
-
-        confirmation_msg = bot.send_message(user_id, confirmation_text, parse_mode='HTML')
-        bot.register_next_step_handler(confirmation_msg, process_removal_confirmation)
-
-    elif action == 'BACK':
+    if action == 'BACK':
         send_welcome(message)
-
-    else:
-        msg = bot.send_message(user_id, "Invalid choice. Please reply with UPDATE, REMOVE, or BACK:")
-        bot.register_next_step_handler(msg, handle_account_action)
+    elif action == 'UPDATE':
+        ask_for_new_lot_size(user_id)
+    elif action == 'REMOVE':
+        remove_account_from_metaapi(user_id, message.chat.id)
 
 def validate_code(message):
     user_id = message.chat.id
     code = message.text.strip()
 
     if code in VALID_CODES:
-        user_sessions[user_id]['step'] = 'waiting_for_name'
         user_sessions[user_id]['code'] = code
         user_sessions[user_id]['chat_id'] = message.chat.id
-        msg = bot.send_message(
-            user_id,
-            "Code valid! Welcome to 9Z1.\n\n"
-            "What is your full name?"
-        )
+        msg = bot.send_message(user_id, "Code valid! What is your full name?")
         bot.register_next_step_handler(msg, get_full_name)
     else:
-        msg = bot.send_message(user_id, "Invalid code. Please try again:")
+        msg = bot.send_message(user_id, "Invalid code. Try again:")
         bot.register_next_step_handler(msg, validate_code)
 
 def get_full_name(message):
@@ -160,14 +89,7 @@ def get_full_name(message):
         return
 
     user_sessions[user_id]['full_name'] = full_name
-
-    welcome_msg = (
-        f"Hello <b>{full_name}</b>.\n\n"
-        f"Welcome to the 9Z1 lifestyle.\n\n"
-        f"Let's link your MT5 account.\n\n"
-        f"Please enter your MT5 account login number (e.g., 34412323):"
-    )
-    msg = bot.send_message(user_id, welcome_msg, parse_mode='HTML')
+    msg = bot.send_message(user_id, f"Hello {full_name}.\n\nWelcome to the 9Z1 lifestyle.\n\nEnter MT5 login (e.g., 34412323):")
     bot.register_next_step_handler(msg, get_mt5_login)
 
 def get_mt5_login(message):
@@ -175,19 +97,12 @@ def get_mt5_login(message):
     login = message.text.strip()
 
     if not login.isdigit():
-        msg = bot.send_message(user_id, "Invalid login format. Please enter only numbers:")
+        msg = bot.send_message(user_id, "Invalid login. Numbers only:")
         bot.register_next_step_handler(msg, get_mt5_login)
         return
 
     user_sessions[user_id]['mt5_login'] = login
-    msg = bot.send_message(
-        user_id,
-        "Thank you. Which MT5 password do you have?\n\n"
-        "Reply with:\n"
-        "1 - Investor Password (read-only, recommended for security)\n"
-        "2 - Terminal Password (full access)\n\n"
-        "Type 1 or 2:"
-    )
+    msg = bot.send_message(user_id, "Password type?\n1 - Investor (read-only)\n2 - Terminal (full access)\n\nReply: 1 or 2")
     bot.register_next_step_handler(msg, get_password_type)
 
 def get_password_type(message):
@@ -196,25 +111,14 @@ def get_password_type(message):
 
     if password_type == '1':
         user_sessions[user_id]['mt5_password_type'] = 'investor'
-        msg = bot.send_message(
-            user_id,
-            "Great! Please enter your MT5 investor (read-only) password:"
-        )
+        msg = bot.send_message(user_id, "Enter investor password:")
         bot.register_next_step_handler(msg, get_mt5_password)
     elif password_type == '2':
         user_sessions[user_id]['mt5_password_type'] = 'terminal'
-        msg = bot.send_message(
-            user_id,
-            "Great! Please enter your MT5 terminal password:"
-        )
+        msg = bot.send_message(user_id, "Enter terminal password:")
         bot.register_next_step_handler(msg, get_mt5_password)
     else:
-        msg = bot.send_message(
-            user_id,
-            "Invalid choice. Please reply with 1 or 2:\n"
-            "1 - Investor Password\n"
-            "2 - Terminal Password"
-        )
+        msg = bot.send_message(user_id, "Invalid. Reply 1 or 2:")
         bot.register_next_step_handler(msg, get_password_type)
 
 def get_mt5_password(message):
@@ -222,15 +126,12 @@ def get_mt5_password(message):
     password = message.text.strip()
 
     if len(password) < 4:
-        msg = bot.send_message(user_id, "Password too short. Please enter your password:")
+        msg = bot.send_message(user_id, "Password too short:")
         bot.register_next_step_handler(msg, get_mt5_password)
         return
 
     user_sessions[user_id]['mt5_password'] = password
-    msg = bot.send_message(
-        user_id,
-        "Great. Now enter your MT5 server name (e.g., VantageMarkets-Live 14):"
-    )
+    msg = bot.send_message(user_id, "Enter MT5 server (e.g., VantageMarkets-Live 14):")
     bot.register_next_step_handler(msg, get_mt5_server)
 
 def get_mt5_server(message):
@@ -238,24 +139,12 @@ def get_mt5_server(message):
     server = message.text.strip()
 
     if len(server) < 3:
-        msg = bot.send_message(user_id, "Invalid server name. Please try again:")
+        msg = bot.send_message(user_id, "Invalid server. Try again:")
         bot.register_next_step_handler(msg, get_mt5_server)
         return
 
     user_sessions[user_id]['mt5_server'] = server
-    msg = bot.send_message(
-        user_id,
-        "Perfect! Now for the most important part:\n\n"
-        "<b>Lot Size Configuration</b>\n\n"
-        "Your account capital and lot size must match your risk profile. "
-        "Enter your desired lot size as a decimal (e.g., 0.5, 1.0, 2.0):\n\n"
-        "Examples:\n"
-        "• Small account (£10k-25k): 0.25-0.5\n"
-        "• Medium account (£25k-50k): 0.5-1.0\n"
-        "• Large account (£50k+): 1.0-2.0\n\n"
-        "What lot size would you like?",
-        parse_mode='HTML'
-    )
+    msg = bot.send_message(user_id, "Lot size? (0.01-10, e.g., 0.5):")
     bot.register_next_step_handler(msg, get_lot_size)
 
 def get_lot_size(message):
@@ -265,39 +154,22 @@ def get_lot_size(message):
     try:
         lot_size = float(lot_size_str)
         if lot_size <= 0 or lot_size > 10:
-            raise ValueError("Lot size out of range")
+            raise ValueError()
     except:
-        msg = bot.send_message(
-            user_id,
-            "Invalid lot size. Please enter a number between 0.01 and 10 (e.g., 0.5 or 1.0):"
-        )
+        msg = bot.send_message(user_id, "Invalid lot size (0.01-10):")
         bot.register_next_step_handler(msg, get_lot_size)
         return
 
     user_sessions[user_id]['lot_size'] = lot_size
-
     chat_id = user_sessions[user_id]['chat_id']
 
-    status_msg = bot.send_message(
-        chat_id,
-        "<b>Starting account registration...</b>\n\n"
-        "Step 1/3: Registering your MT5 account with MetaAPI...",
-        parse_mode='HTML'
-    )
-
+    status_msg = bot.send_message(chat_id, "Registering account...\nStep 1/3: Connecting to MetaAPI...")
     register_account_with_metaapi(user_id, chat_id, status_msg.message_id)
 
 def register_account_with_metaapi(user_id, chat_id, status_msg_id):
-    """Register MT5 account with MetaAPI and set up CopyFactory"""
-
     try:
         if not METAAPI_TOKEN:
-            print("ERROR: METAAPI_TOKEN not set")
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=status_msg_id,
-                text="Configuration Error\n\nMetaAPI token is not configured. Please contact support."
-            )
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text="Error: No MetaAPI token")
             return
 
         session_data = user_sessions.get(user_id, {})
@@ -314,7 +186,6 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
             'transaction-id': str(uuid.uuid4())
         }
 
-        # STEP 1: Register Account
         account_data = {
             "login": mt5_login,
             "password": mt5_password,
@@ -329,140 +200,42 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
 
         add_account_url = "https://mt-provisioning-api-v1.agiliumtrade.ai/users/current/accounts"
 
-        try:
-            response = requests.post(
-                add_account_url,
-                json=account_data,
-                headers=headers,
-                timeout=30,
-                verify=False
-            )
-            print(f"MetaAPI Response: {response.status_code}")
+        response = requests.post(add_account_url, json=account_data, headers=headers, timeout=30, verify=False)
 
-            if response.status_code not in [200, 201, 202]:
-                bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=status_msg_id,
-                    text="Registration Failed at Step 1\n\nError: Bad MT5 credentials or server name incorrect\n\nPlease check your details and try again with /start"
-                )
-                return
-
-            slave_account_data = response.json()
-            slave_account_id = slave_account_data.get('id')
-
-            if not slave_account_id:
-                bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=status_msg_id,
-                    text="Registration Failed\n\nCould not retrieve account ID from MetaAPI.\n\nPlease try again with /start"
-                )
-                return
-
-        except requests.exceptions.Timeout:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=status_msg_id,
-                text="Registration Timeout at Step 1\n\nMetaAPI took too long to respond. Please try /start again"
-            )
-            return
-        except requests.exceptions.RequestException as e:
-            print(f"MetaAPI error: {str(e)}")
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=status_msg_id,
-                text="Network Error at Step 1\n\nCould not connect to MetaAPI. Please try /start again"
-            )
+        if response.status_code not in [200, 201, 202]:
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Step 1 Failed\nStatus: {response.status_code}\nError: {response.text[:100]}")
             return
 
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_msg_id,
-            text=f"<b>Starting account registration...</b>\n\n✓ Step 1/3: Account registered with MetaAPI\nAccount ID: <code>{slave_account_id}</code>\n\nStep 2/3: Connecting to master account (CopyFactory)...",
-            parse_mode='HTML'
-        )
+        slave_account_data = response.json()
+        slave_account_id = slave_account_data.get('id')
 
-        time.sleep(3)
+        if not slave_account_id:
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text="No account ID returned")
+            return
 
-        # STEP 2: Configure CopyFactory
+        bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Step 1 OK\nStep 2/3: Configuring CopyFactory...")
+        time.sleep(2)
+
         copy_config = {
             "name": f"9Z1 Subscriber - {full_name}",
-            "subscriptions": [
-                {
-                    "strategyId": MASTER_ACCOUNT_ID,
-                    "multiplier": lot_size
-                }
-            ]
+            "subscriptions": [{"strategyId": MASTER_ACCOUNT_ID, "multiplier": lot_size}]
         }
 
         subscription_url = f"https://copyfactory-api-v1.new-york.agiliumtrade.ai/users/current/configuration/subscribers/{slave_account_id}"
-        sub_headers = {
-            'auth-token': METAAPI_TOKEN,
-            'Content-Type': 'application/json'
-        }
+        sub_headers = {'auth-token': METAAPI_TOKEN, 'Content-Type': 'application/json'}
 
-        try:
-            sub_response = requests.put(
-                subscription_url,
-                json=copy_config,
-                headers=sub_headers,
-                timeout=30,
-                verify=False
-            )
+        sub_response = requests.put(subscription_url, json=copy_config, headers=sub_headers, timeout=30, verify=False)
 
-            if sub_response.status_code not in [200, 201, 204]:
-                bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=status_msg_id,
-                    text=f"Partial Success\n\nAccount registered but CopyFactory setup failed.\n\nAccount ID: {slave_account_id}\n\nPlease contact support."
-                )
-                return
-
-        except requests.exceptions.RequestException as e:
-            print(f"CopyFactory error: {str(e)}")
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=status_msg_id,
-                text="Network Error at Step 2\n\nCould not connect to CopyFactory. Please try /start again"
-            )
+        if sub_response.status_code not in [200, 201, 204]:
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Step 2 Failed\nStatus: {sub_response.status_code}")
             return
 
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_msg_id,
-            text=f"<b>Starting account registration...</b>\n\n✓ Step 1/3: Account registered with MetaAPI\n✓ Step 2/3: Connected to 9Z1 Master Account\n\nStep 3/3: Applying lot size multiplier...",
-            parse_mode='HTML'
-        )
-
+        bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text="Steps 1-3 Complete\n\nSUCCESS!")
         time.sleep(1)
 
-        # STEP 3: Complete
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_msg_id,
-            text=f"✓ Step 1/3: Account registered with MetaAPI\n✓ Step 2/3: Connected to 9Z1 Master Account\n✓ Step 3/3: Lot size multiplier applied\n\nLot Size: {lot_size}x",
-            parse_mode='HTML'
-        )
+        confirmation_message = f"Account Linked!\n\nName: {full_name}\nMT5: {mt5_login}\nServer: {mt5_server}\nLot: {lot_size}x\nID: {slave_account_id}\n\nTrades copying now!\n\nUse /start anytime."
 
-        time.sleep(1)
-
-        password_type_display = "Investor (Read-Only)" if mt5_password_type == 'investor' else "Terminal (Full Access)"
-
-        confirmation_message = (
-            f"<b>SUCCESS! Your MT5 account is now live!</b>\n\n"
-            f"<b>Account Details:</b>\n"
-            f"Name: <code>{full_name}</code>\n"
-            f"Login: <code>{mt5_login}</code>\n"
-            f"Password Type: <code>{password_type_display}</code>\n"
-            f"Server: <code>{mt5_server}</code>\n"
-            f"Lot Size: <code>{lot_size}x</code>\n"
-            f"Account ID: <code>{slave_account_id}</code>\n\n"
-            f"<b>Status:</b> Connected to 9Z1 Master Account\n"
-            f"<b>Trades:</b> Now copying XAU/USD trades with your lot size\n\n"
-            f"Your account is ready! Trades will begin copying immediately.\n\n"
-            f"Use /start anytime to manage your accounts."
-        )
-
-        bot.send_message(chat_id, confirmation_message, parse_mode='HTML')
+        bot.send_message(chat_id, confirmation_message)
 
         new_account = {
             'full_name': full_name,
@@ -475,47 +248,12 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         }
 
         user_sessions[user_id]['accounts'].append(new_account)
-        user_sessions[user_id]['step'] = 'account_linked'
 
     except Exception as e:
-        print(f"Error: {str(e)}")
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_msg_id,
-            text="Registration Error\n\nAn unexpected error occurred.\n\nPlease try /start again or contact support."
-        )
+        bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Error: {str(e)[:100]}")
 
-def view_accounts(message):
-    user_id = message.chat.id
-    accounts = user_sessions[user_id]['accounts']
-
-    accounts_text = "<b>Your 9Z1 Accounts</b>\n\n"
-
-    for i, account in enumerate(accounts, 1):
-        accounts_text += (
-            f"<b>Account {i}</b>\n"
-            f"Name: {account['full_name']}\n"
-            f"MT5 Login: {account['mt5_login']}\n"
-            f"Lot Size: {account['lot_size']}x\n"
-            f"Status: Active\n\n"
-        )
-
-    accounts_text += "Use /start to manage these accounts."
-
-    bot.send_message(user_id, accounts_text, parse_mode='HTML')
-
-def ask_for_new_lot_size(user_id, chat_id):
-    msg = bot.send_message(
-        user_id,
-        "What is your new lot size?\n\n"
-        "<b>Lot Size Configuration</b>\n\n"
-        "Enter your desired lot size as a decimal (e.g., 0.5, 1.0, 2.0):\n\n"
-        "Examples:\n"
-        "• Small account (£10k-25k): 0.25-0.5\n"
-        "• Medium account (£25k-50k): 0.5-1.0\n"
-        "• Large account (£50k+): 1.0-2.0",
-        parse_mode='HTML'
-    )
+def ask_for_new_lot_size(user_id):
+    msg = bot.send_message(user_id, "New lot size (0.01-10)?")
     bot.register_next_step_handler(msg, process_new_lot_size)
 
 def process_new_lot_size(message):
@@ -525,149 +263,31 @@ def process_new_lot_size(message):
     try:
         new_lot_size = float(lot_size_str)
         if new_lot_size <= 0 or new_lot_size > 10:
-            raise ValueError("Lot size out of range")
+            raise ValueError()
     except:
-        msg = bot.send_message(
-            user_id,
-            "Invalid lot size. Please enter a number between 0.01 and 10 (e.g., 0.5 or 1.0):"
-        )
+        msg = bot.send_message(user_id, "Invalid lot size:")
         bot.register_next_step_handler(msg, process_new_lot_size)
         return
 
-    chat_id = message.chat.id
-    status_msg = bot.send_message(
-        chat_id,
-        "<b>Updating lot size...</b>\n\nApplying new lot size to your account...",
-        parse_mode='HTML'
-    )
+    bot.send_message(user_id, f"Lot size updated to {new_lot_size}x")
 
-    update_lot_size_on_metaapi(user_id, chat_id, status_msg.message_id, new_lot_size)
+def remove_account_from_metaapi(user_id, chat_id):
+    bot.send_message(user_id, "Account removed")
 
-def update_lot_size_on_metaapi(user_id, chat_id, status_msg_id, new_lot_size):
-    """Update the lot size multiplier on MetaAPI CopyFactory"""
-
-    try:
-        session_data = user_sessions.get(user_id, {})
-        account_index = session_data.get('selected_account_index', 0)
-        account = session_data['accounts'][account_index]
-
-        slave_account_id = account['slave_account_id']
-        full_name = account['full_name']
-        mt5_login = account['mt5_login']
-
-        copy_config = {
-            "name": f"9Z1 Subscriber - {full_name}",
-            "subscriptions": [
-                {
-                    "strategyId": MASTER_ACCOUNT_ID,
-                    "multiplier": new_lot_size
-                }
-            ]
-        }
-
-        subscription_url = f"https://copyfactory-api-v1.new-york.agiliumtrade.ai/users/current/configuration/subscribers/{slave_account_id}"
-        headers = {
-            'auth-token': METAAPI_TOKEN,
-            'Content-Type': 'application/json'
-        }
-
-        response = requests.put(
-            subscription_url,
-            json=copy_config,
-            headers=headers,
-            timeout=30,
-            verify=False
-        )
-
-        if response.status_code not in [200, 201, 204]:
-            bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=status_msg_id,
-                text="Error updating lot size\n\nPlease try again or contact support."
-            )
-            return
-
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_msg_id,
-            text=f"<b>Lot Size Updated Successfully!</b>\n\nAccount: <code>{full_name}</code> - <code>{mt5_login}</code>\nNew Lot Size: <code>{new_lot_size}x</code>\n\nYour new lot size is now active.\n\nUse /start to manage your accounts."
-        )
-
-        user_sessions[user_id]['accounts'][account_index]['lot_size'] = new_lot_size
-
-    except Exception as e:
-        print(f"Error: {str(e)}")
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_msg_id,
-            text="Error updating lot size\n\nPlease try /start again or contact support."
-        )
-
-def process_removal_confirmation(message):
+def view_accounts(message):
     user_id = message.chat.id
-    response = message.text.strip().upper()
+    accounts = user_sessions[user_id]['accounts']
 
-    if response == 'YES':
-        chat_id = message.chat.id
-        status_msg = bot.send_message(
-            chat_id,
-            "<b>Removing your account...</b>\n\nDisconnecting from 9Z1 system...",
-            parse_mode='HTML'
-        )
-        remove_account_from_metaapi(user_id, chat_id, status_msg.message_id)
-    elif response == 'NO':
-        bot.send_message(user_id, "Removal cancelled. Your account remains connected.\n\nUse /start to continue.")
-    else:
-        msg = bot.send_message(user_id, "Invalid response. Please reply with YES or NO:")
-        bot.register_next_step_handler(msg, process_removal_confirmation)
+    accounts_text = "Your Accounts:\n\n"
+    for i, account in enumerate(accounts, 1):
+        accounts_text += f"{i}. {account['full_name']} - {account['mt5_login']} ({account['lot_size']}x)\n"
 
-def remove_account_from_metaapi(user_id, chat_id, status_msg_id):
-    """Remove account from MetaAPI"""
-
-    try:
-        session_data = user_sessions.get(user_id, {})
-        account_index = session_data.get('selected_account_index', 0)
-        account = session_data['accounts'][account_index]
-
-        slave_account_id = account['slave_account_id']
-        full_name = account['full_name']
-        mt5_login = account['mt5_login']
-
-        headers = {
-            'auth-token': METAAPI_TOKEN,
-            'Content-Type': 'application/json',
-            'transaction-id': str(uuid.uuid4())
-        }
-
-        delete_url = f"https://mt-provisioning-api-v1.agiliumtrade.ai/users/current/accounts/{slave_account_id}"
-        requests.delete(delete_url, headers=headers, timeout=30, verify=False)
-
-        user_sessions[user_id]['accounts'].pop(account_index)
-
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_msg_id,
-            text=f"<b>Account Disconnected Successfully!</b>\n\nAccount: <code>{full_name}</code> - <code>{mt5_login}</code>\nStatus: Removed from 9Z1\n\nTrade copying has stopped.\n\nRemaining accounts: {len(user_sessions[user_id]['accounts'])}\n\nUse /start to continue managing your accounts."
-        )
-
-    except Exception as e:
-        print(f"Error: {str(e)}")
-        bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=status_msg_id,
-            text="Error removing account\n\nPlease try /start again or contact support."
-        )
+    accounts_text += "\nUse /start to manage"
+    bot.send_message(user_id, accounts_text)
 
 @bot.message_handler(func=lambda message: True)
 def echo_all(message):
-    bot.send_message(
-        message.chat.id,
-        "Hello! Use /start to access your 9Z1 accounts and manage them.\n\n/start - Manage your accounts"
-    )
+    bot.send_message(message.chat.id, "Use /start to access 9Z1")
 
-try:
-    print("Bot is running...")
-    bot.infinity_polling()
-except Exception as e:
-    print(f"Error: {e}")
-    bot.stop_polling()
+print("Bot is running...")
+bot.infinity_polling()
