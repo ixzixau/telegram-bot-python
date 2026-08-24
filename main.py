@@ -4,6 +4,8 @@ import requests
 import uuid
 from telebot import TeleBot
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 load_dotenv()
 
@@ -15,6 +17,18 @@ bot = TeleBot(TELEGRAM_BOT_TOKEN)
 
 VALID_CODES = {'9Z1XAU': True, '9Z1GOLD': True}
 user_sessions = {}
+
+# Create session with retry logic
+session = requests.Session()
+retry_strategy = Retry(
+    total=5,
+    backoff_factor=2,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["HEAD", "GET", "PUT", "DELETE", "POST"]
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
 
 @bot.message_handler(commands=['start', 'hello'])
 def send_welcome(message):
@@ -163,7 +177,7 @@ def get_lot_size(message):
     user_sessions[user_id]['lot_size'] = lot_size
     chat_id = user_sessions[user_id]['chat_id']
 
-    status_msg = bot.send_message(chat_id, "Registering account...\nStep 1/3: Connecting to MetaAPI...")
+    status_msg = bot.send_message(chat_id, "Registering account...\nStep 1/3: Connecting to MetaAPI...\n\n(This may take 30-60 seconds)")
     register_account_with_metaapi(user_id, chat_id, status_msg.message_id)
 
 def register_account_with_metaapi(user_id, chat_id, status_msg_id):
@@ -200,10 +214,15 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
 
         add_account_url = "https://mt-provisioning-api-v1.agiliumtrade.ai/users/current/accounts"
 
-        response = requests.post(add_account_url, json=account_data, headers=headers, timeout=30, verify=False)
+        print(f"[DEBUG] Attempting MetaAPI connection...")
+
+        response = session.post(add_account_url, json=account_data, headers=headers, timeout=60, verify=False)
+
+        print(f"[DEBUG] Response status: {response.status_code}")
 
         if response.status_code not in [200, 201, 202]:
-            bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Step 1 Failed\nStatus: {response.status_code}\nError: {response.text[:100]}")
+            error_text = response.text[:200] if response.text else "Unknown error"
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Step 1 Failed\nStatus: {response.status_code}\nError: {error_text}")
             return
 
         slave_account_data = response.json()
@@ -212,6 +231,8 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         if not slave_account_id:
             bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text="No account ID returned")
             return
+
+        print(f"[DEBUG] Account created: {slave_account_id}")
 
         bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Step 1 OK\nStep 2/3: Configuring CopyFactory...")
         time.sleep(2)
@@ -224,10 +245,15 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         subscription_url = f"https://copyfactory-api-v1.new-york.agiliumtrade.ai/users/current/configuration/subscribers/{slave_account_id}"
         sub_headers = {'auth-token': METAAPI_TOKEN, 'Content-Type': 'application/json'}
 
-        sub_response = requests.put(subscription_url, json=copy_config, headers=sub_headers, timeout=30, verify=False)
+        print(f"[DEBUG] Configuring CopyFactory...")
+
+        sub_response = session.put(subscription_url, json=copy_config, headers=sub_headers, timeout=60, verify=False)
+
+        print(f"[DEBUG] CopyFactory response: {sub_response.status_code}")
 
         if sub_response.status_code not in [200, 201, 204]:
-            bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Step 2 Failed\nStatus: {sub_response.status_code}")
+            error_text = sub_response.text[:200] if sub_response.text else "Unknown error"
+            bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Step 2 Failed\nStatus: {sub_response.status_code}\nError: {error_text}")
             return
 
         bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text="Steps 1-3 Complete\n\nSUCCESS!")
@@ -248,9 +274,12 @@ def register_account_with_metaapi(user_id, chat_id, status_msg_id):
         }
 
         user_sessions[user_id]['accounts'].append(new_account)
+        print(f"[DEBUG] Account linking complete")
 
     except Exception as e:
-        bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Error: {str(e)[:100]}")
+        error_msg = str(e)[:150]
+        print(f"[ERROR] {error_msg}")
+        bot.edit_message_text(chat_id=chat_id, message_id=status_msg_id, text=f"Connection Error\n\n{error_msg}\n\nTrying again may help. Contact support if persists.")
 
 def ask_for_new_lot_size(user_id):
     msg = bot.send_message(user_id, "New lot size (0.01-10)?")
